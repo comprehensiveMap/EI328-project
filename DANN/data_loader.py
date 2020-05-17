@@ -1,83 +1,90 @@
 import torch.utils.data as data
+from torch.utils.data import Dataset
+from torch.utils.data import DataLoader
 import torch
 from PIL import Image
 import os
-import scipy.io
+from torchvision import transforms
+from torchvision import datasets
+from scipy.io import loadmat
+import scipy
+from sklearn.preprocessing import StandardScaler, MaxAbsScaler, MinMaxScaler
 import numpy as np
 
 BATCH_SIZE = 128
+scaler = MinMaxScaler()
+num_repeat = 1
+num_train = 10
 
 
-def load_data(batch_size=128):
-    X_train = np.array([])
-    y_train = np.array([])
-
-    for i in range(10):
-        data = scipy.io.loadmat('../train/%d.mat'%(i+1))['de_feature']
-        label = scipy.io.loadmat('../train/%d.mat'%(i+1))['label']
+class sentimentDataset(Dataset):
+    def __init__(self, data, labels=None):
+        self.data = data
+        self.labels = labels
+        self.len = data.shape[0]
         
-        if i == 0:
-            X_train = data
-            y_train = label
-        else:
-            X_train = np.vstack((X_train, data))
-            y_train = np.vstack((y_train, label))
-
-    X_train = (X_train - np.min(X_train, axis = 0)) / (np.max(X_train, axis = 0) - np.min(X_train, axis=0))
-    X_train = torch.from_numpy(X_train).float()
-    y_train = torch.from_numpy(y_train).long().squeeze()
-
-
-    dataloader_source = torch.utils.data.DataLoader(
-        dataset=torch.utils.data.TensorDataset(X_train, y_train),
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
-        num_workers=8)
-
-
-    X_test = scipy.io.loadmat('../test/%d.mat'%(11))['de_feature']
-    y_test = scipy.io.loadmat('../test/%d.mat'%(11))['label']
-    X_test = (X_test - np.min(X_test,axis=0)) / (np.max(X_test,axis=0) - np.min(X_test,axis=0))
-    X_test = torch.from_numpy(X_test).float().repeat(10,1)
-    y_test = torch.from_numpy(y_test).long().repeat(10,1).squeeze()
-
-    dataloader_target = torch.utils.data.DataLoader(
-        dataset=torch.utils.data.TensorDataset(X_test, y_test),
-        batch_size=batch_size,
-        shuffle=True,
-        drop_last=True,
-        num_workers=8)
-    return dataloader_source, dataloader_target
-
-
-def load_test_data(tar = True, batch_size=128):
-    X = np.array([])
-    y = np.array([])
-    if tar:
-        X = scipy.io.loadmat('../test/%d.mat'%(11))['de_feature']
-        y = scipy.io.loadmat('../test/%d.mat'%(11))['label']   
-    else:
-        for i in range(10):
-            data = scipy.io.loadmat('../train/%d.mat'%(i+1))['de_feature']
-            label = scipy.io.loadmat('../train/%d.mat'%(i+1))['label']
-            
-            if i == 0:
-                X = data
-                y = label
-            else:
-                X = np.vstack((X, data))
-                y = np.vstack((y, label))
-
-    X = (X - np.min(X, axis = 0)) / (np.max(X, axis=0) - np.min(X, axis=0))
-    X = torch.from_numpy(X).float()
-    y = torch.from_numpy(y).long().squeeze()
-
-    dataloader = torch.utils.data.DataLoader(
-        dataset=torch.utils.data.TensorDataset(X, y),
-        batch_size=batch_size,
-        shuffle=False,
-        drop_last=True,
-        num_workers=8)
+    def __getitem__(self, idx):
+        data_tensor = torch.tensor(self.data[idx], dtype=torch.float32)
+        if self.labels is not None:
+            label_tensor = torch.tensor(self.labels[idx], dtype=torch.long)
+        return data_tensor, label_tensor
     
+    def __len__(self):
+        return self.len
+
+
+def load_data(batch_size=BATCH_SIZE, person=1):
+    train_data_list = []
+    train_label_list = []
+    test_data_list = []
+    test_label_list = []
+
+    for i in range(1, num_train+1):
+        mat_data = loadmat("../train/"+str(i)+".mat")
+        train_data_list.append(scaler.fit_transform(mat_data['de_feature']))
+        train_label_list.append(mat_data['label'])
+
+    for i in range(11, 14):
+        mat_data = loadmat("../test/"+str(i)+".mat")
+        test_data_list.append(scaler.fit_transform(mat_data['de_feature']))
+        test_label_list.append(mat_data['label'])
+        for _ in range(num_repeat-1):
+            test_data_list[i-11] = np.concatenate((test_data_list[i-11], scaler.fit_transform(mat_data['de_feature'])))
+            test_label_list[i-11] = np.concatenate((test_label_list[i-11], mat_data['label']))
+
+    train_datas = np.concatenate(train_data_list)
+    train_labels = np.concatenate(train_label_list)
+
+    trainset = sentimentDataset(train_datas, train_labels)
+    dataloader_source = DataLoader(trainset, batch_size=batch_size, shuffle=False)
+
+    testsets = [sentimentDataset(test_data_list[i], test_label_list[i]) for i in range(3)]
+    dataloaders_target = [DataLoader(testset, batch_size=batch_size, shuffle=False) for testset in testsets]
+
+    return dataloader_source, dataloaders_target[person-1]
+
+
+def load_test_data(tar = True, batch_size=BATCH_SIZE, person=1):
+    if tar:
+        test_data_list = []
+        test_label_list = []
+        for i in range(11, 14):
+            mat_data = loadmat("../test/"+str(i)+".mat")
+            test_data_list.append(scaler.fit_transform(mat_data['de_feature']))
+            test_label_list.append(mat_data['label'])
+        testsets = [sentimentDataset(test_data_list[i], test_label_list[i]) for i in range(3)]
+        dataloaders_target = [DataLoader(testset, batch_size=batch_size, shuffle=False) for testset in testsets]
+        dataloader = dataloaders_target[person-1]
+    else:
+        train_data_list = []
+        train_label_list = []
+        for i in range(1, num_train+1):
+            mat_data = loadmat("../train/"+str(i)+".mat")
+            train_data_list.append(scaler.fit_transform(mat_data['de_feature']))
+            train_label_list.append(mat_data['label'])
+        train_datas = np.concatenate(train_data_list)
+        train_labels = np.concatenate(train_label_list)
+        trainset = sentimentDataset(train_datas, train_labels)
+        dataloader = DataLoader(trainset, batch_size=batch_size, shuffle=False)
+
     return dataloader

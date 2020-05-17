@@ -14,11 +14,13 @@ import random
 import scipy.io
 from torch.utils.data import DataLoader
 from models import *
+import json
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", default=32)
 parser.add_argument("--num_workers", default=4)
-parser.add_argument("--pre_epochs", default=60, type=int)
+parser.add_argument("--pre_epochs", default=50, type=int)
 parser.add_argument("--epoch", default=300, type=int)
 parser.add_argument("--snapshot", default="snapshot")
 parser.add_argument("--lr", default=0.0002)
@@ -29,6 +31,8 @@ parser.add_argument("--weight_L2norm", default=0.005)
 parser.add_argument("--dropout_p", default=0.5)
 parser.add_argument("--post", default='-1', type=str)
 parser.add_argument("--repeat", default='-1', type=str)
+parser.add_argument("--seed", type = int, default=0)
+parser.add_argument("--person", type = int, default=1)
 args = parser.parse_args()
 
 def setup_seed(seed):
@@ -67,10 +71,10 @@ def dataset_load(batch_size = 64, person = 1):
 
     return source_dataset, target_dataset
 
-DEVICE = 'cpu'
+DEVICE = 'cuda'
 
-setup_seed(20)
-source_dataset, target_dataset = dataset_load(person = 1)
+setup_seed(args.seed)
+source_dataset, target_dataset = dataset_load(person = args.person)
 
 netG = FeatureExtractor().to(DEVICE)
 netF = Classifier(class_num=args.class_num, extract=args.extract, dropout_p=args.dropout_p).to(DEVICE)
@@ -129,7 +133,7 @@ for epoch in range(1, args.pre_epochs + 1):
 
     print('Train Epoch: {} \t Pretrain Loss: {:.6f}\t'.format(epoch, LOSS))
 
-
+acc_list = []
 for epoch in range(1, args.epoch + 1):
     source_loader = DataLoader(source_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True)
     target_loader = DataLoader(target_dataset, batch_size=args.batch_size, shuffle=True, num_workers=0, pin_memory=True)
@@ -186,11 +190,16 @@ for epoch in range(1, args.epoch + 1):
         size += k
 
     acc = correct * 100.0 / size
+    acc_list.append(acc/100.)
     print("Epoch {0}: {1}".format(epoch, correct))
     
     print('\nTraning epoch: {}\t Test set: Accuracy C: {:.2f}%'.format(epoch, acc))
     record = open(record_test, 'a')
     record.write('\nTraning epoch: {}\t Test set: Accuracy C: {:.2f}%'.format(epoch, acc))
     record.close()
+
+jd = {"test_acc": acc_list}
+with open(str(args.seed)+'/acc'+str(args.person)+'.json', 'w') as f:
+    json.dump(jd, f)
 
 

@@ -3,23 +3,22 @@ import torch.nn as nn
 import adv_layer
 
 
-EXTRACTED_FEATURE_DIM = 128
-HIDDEN_SIZE = 256
-WINDOW_SIZE = 8
-
-
 class FeatureExtractor(nn.Module):
     def __init__(self):
         super(FeatureExtractor, self).__init__()
         feature = nn.Sequential()
-        feature.add_module('f_first_linear', nn.Linear(310, 256))
+        feature.add_module('f_conv1', nn.Conv2d(3, 64, kernel_size=5))
+        feature.add_module('f_bn1', nn.BatchNorm2d(64))
+        feature.add_module('f_pool1', nn.MaxPool2d(2))
         feature.add_module('f_relu1', nn.ReLU(True))
-        feature.add_module('f_second_linear', nn.Linear(256, EXTRACTED_FEATURE_DIM))
-        feature.add_module('f_drop1', nn.Dropout(0.2))
-        feature.add_module('f_relu2', nn.ReLU(True)) # 直接覆盖原有内存，节约空间和时间
+        feature.add_module('f_conv2', nn.Conv2d(64, 50, kernel_size=5))
+        feature.add_module('f_bn2', nn.BatchNorm2d(50))
+        feature.add_module('f_drop1', nn.Dropout2d())
+        feature.add_module('f_pool2', nn.MaxPool2d(2))
+        feature.add_module('f_relu2', nn.ReLU(True))
         self.feature = feature
 
-    def forward(self, x): # x: (batch_size, ori_feature_dim(310))
+    def forward(self, x):
         return self.feature(x)
 
 
@@ -27,14 +26,14 @@ class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
         self.class_classifier = nn.Sequential()
-        self.class_classifier.add_module('c_fc1', nn.Linear(EXTRACTED_FEATURE_DIM, 100))
+        self.class_classifier.add_module('c_fc1', nn.Linear(50 * 4 * 4, 100))
         self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
-        self.class_classifier.add_module('c_drop1', nn.Dropout(0.3))
-        self.class_classifier.add_module('c_fc2', nn.Linear(100, 64))
-        self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(64))
+        self.class_classifier.add_module('c_drop1', nn.Dropout2d())
+        self.class_classifier.add_module('c_fc2', nn.Linear(100, 100))
+        self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(100))
         self.class_classifier.add_module('c_relu2', nn.ReLU(True))
-        self.class_classifier.add_module('c_fc3', nn.Linear(64, 4))
+        self.class_classifier.add_module('c_fc3', nn.Linear(100, 10))
 
     def forward(self, x):
         return self.class_classifier(x)
@@ -48,16 +47,18 @@ class DANN(nn.Module):
         self.feature = FeatureExtractor()
         self.classifier = Classifier()
         self.domain_classifier = adv_layer.Discriminator(
-            input_dim=EXTRACTED_FEATURE_DIM, hidden_dim=100)
+            input_dim=50 * 4 * 4, hidden_dim=100)
 
-    def forward(self, input_data, alpha=1, source=True): # input_data: (batch_size, ori_dim(310))
-        feature = self.feature(input_data) # (batch_size, EXTRACTED_FEATURE_DIM)
-        class_output = self.classifier(feature) # (batch_size, 4)
+    def forward(self, input_data, alpha=1, source=True):
+        input_data = input_data.expand(len(input_data), 3, 28, 28) # (batch_size, RGB, height, width)
+        feature = self.feature(input_data)
+        feature = feature.view(-1, 50 * 4 * 4) # (batch_size, 50*4*4(feature_dim))
+        class_output = self.classifier(feature) # (batch_size, 10)
         domain_output = self.get_adversarial_result(
             feature, source, alpha)
         return class_output, domain_output
 
-    def get_adversarial_result(self, x, source=True, alpha=1): # x: (batch_size, EXTRACTED_FEATURE_DIM)
+    def get_adversarial_result(self, x, source=True, alpha=1): # x: (batch_size, feature_dim)
         loss_fn = nn.BCELoss()
         if source:
             domain_label = torch.ones(len(x)).long().to(self.device) # (batch_size, )

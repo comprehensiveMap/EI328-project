@@ -12,7 +12,6 @@ class FeatureExtractor(nn.Module):
         feature.add_module('f_first_linear', nn.Linear(310, 256))
         feature.add_module('f_relu1', nn.ReLU(True))
         feature.add_module('f_second_linear', nn.Linear(256, EXTRACTED_FEATURE_DIM))
-        feature.add_module('f_drop1', nn.Dropout(0.2))
         feature.add_module('f_relu2', nn.ReLU(True)) # 直接覆盖原有内存，节约空间和时间
         self.feature = feature
 

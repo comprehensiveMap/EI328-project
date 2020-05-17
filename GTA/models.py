@@ -85,12 +85,9 @@ class _netC(nn.Module):
     def __init__(self, opt, nclasses):
         super(_netC, self).__init__()
         self.class_classifier = nn.Sequential()
-        self.class_classifier.add_module('c_fc1', nn.Linear(128, 100))
-        self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(100))
+        self.class_classifier.add_module('c_fc1', nn.Linear(128, 64))
+        self.class_classifier.add_module('c_bn1', nn.BatchNorm1d(64))
         self.class_classifier.add_module('c_relu1', nn.ReLU(True))
-        self.class_classifier.add_module('c_fc2', nn.Linear(100, 64))
-        self.class_classifier.add_module('c_bn2', nn.BatchNorm1d(64))
-        self.class_classifier.add_module('c_relu2', nn.ReLU(True))
         self.class_classifier.add_module('c_fc3', nn.Linear(64, 4))
 
     def forward(self, x):

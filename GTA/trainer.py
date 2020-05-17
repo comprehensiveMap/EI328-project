@@ -112,6 +112,7 @@ class GTA(object):
             
         test_acc = 100*float(correct)/total
         print('Test Accuracy: %f %%' % (test_acc))
+        return test_acc/100.
             
             
     """
@@ -120,6 +121,7 @@ class GTA(object):
     def train(self):
         
         curr_iter = 0
+        acc_list = []
         
         for epoch in range(self.opt.nepochs):
             source_trainloader = DataLoader(self.source_dataset, batch_size=self.opt.batchSize, shuffle=True, num_workers=1)
@@ -218,18 +220,7 @@ class GTA(object):
                 errG = errG_c + errG_s
                 errG.backward(retain_graph=True)
                 self.optimizerG.step()
-                for i in range(5):
-                    # Updating G network
-                    self.netG.zero_grad()       
-                    src_fakeoutputD_s, src_fakeoutputD_c = self.netD(src_gen)
-                    # G让生成的图像仍然可以被正确地分类
-                    errG_c = self.criterion_c(src_fakeoutputD_c, src_labelsv)
-                    # G的目标是要让生成的图像被认为是真实的
-                    errG_s = self.criterion_s(src_fakeoutputD_s, reallabelv)
-                    errG = errG_c + errG_s
-                    errG.backward(retain_graph=True)
-                    self.optimizerG.step()
-                
+    
 
                 # Updating C network
                 # C使Embedding更好地被分类
@@ -267,4 +258,6 @@ class GTA(object):
                 print('ErrD: %.2f, ErrG: %.2f, ErrC: %.2f, ErrF: %.2f' % (errD.item(), errG.item(), errC.item(), errF.item()))
 
             # Validate every epoch
-            self.validate(epoch+1)
+            test_acc = self.validate(epoch+1)
+            acc_list.append(test_acc)
+        return acc_list

@@ -65,8 +65,8 @@ def preprocess_test(person = 3):
 
     return X_test, y_test
 
-def create_dataloaders(batch_size):
-    X_train, y_train = preprocess_train()
+def create_dataloaders(batch_size, idx):
+    X_train, y_train = preprocess_train_single(idx)
     X_test, y_test = preprocess_test()
     train_dataset=torch.utils.data.TensorDataset(X_train, y_train)
     test_dataset = torch.utils.data.TensorDataset(X_test, y_test)
@@ -116,36 +116,37 @@ def do_epoch(model, dataloader, criterion, optim=None):
 
 
 def main(args):
-    train_loader, val_loader = create_dataloaders(args.batch_size)
-
-    model = Net().to(device)
-    optim = torch.optim.Adam(model.parameters())
-    lr_schedule = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, patience=1, verbose=True)
+    models = [Net().to(device) for _ in range(10)]
+    optims = [torch.optim.Adam(models[idx].parameters(), lr=1e-4) for idx in range(10)]
+    lr_schedules = [torch.optim.lr_scheduler.ReduceLROnPlateau(optims[idx], patience=1, verbose=True) for idx in range(10)]
     criterion = torch.nn.CrossEntropyLoss()
 
-    best_accuracy = 0
-    for epoch in range(1, args.epochs+1):
-        model.train()
-        train_loss, train_accuracy = do_epoch(model, train_loader, criterion, optim=optim)
+    best_accuracys = [0.0]*10
+    for idx in range(10):
+        model = models[idx]
+        train_loader, val_loader = create_dataloaders(args.batch_size, idx)
+        for epoch in range(1, args.epochs+1):
+            model.train()
+            train_loss, train_accuracy = do_epoch(model, train_loader, criterion, optim=optims[idx])
 
-        model.eval()
-        with torch.no_grad():
-            val_loss, val_accuracy = do_epoch(model, val_loader, criterion, optim=None)
+            model.eval()
+            with torch.no_grad():
+                val_loss, val_accuracy = do_epoch(model, val_loader, criterion, optim=None)
 
-        tqdm.write(f'EPOCH {epoch:03d}: train_loss={train_loss:.4f}, train_accuracy={train_accuracy:.4f} '
-                   f'val_loss={val_loss:.4f}, val_accuracy={val_accuracy:.4f}')
+            tqdm.write(f'EPOCH {epoch:03d}: train_loss={train_loss:.4f}, train_accuracy={train_accuracy:.4f} '
+                    f'val_loss={val_loss:.4f}, val_accuracy={val_accuracy:.4f}')
 
-        if val_accuracy > best_accuracy:
-            print('Saving model...')
-            best_accuracy = val_accuracy
-            torch.save(model.state_dict(), 'trained_models/source.pt')
+            if val_accuracy > best_accuracys[idx]:
+                print('Saving model...')
+                best_accuracys[idx] = val_accuracy
+                torch.save(model.state_dict(), 'trained_models/source'+str(idx))
 
-        lr_schedule.step(val_loss)
+            lr_schedules[idx].step(val_loss)
 
 
 if __name__ == '__main__':
     arg_parser = argparse.ArgumentParser(description='Train a classifier on source domain')
     arg_parser.add_argument('--batch-size', type=int, default=64)
-    arg_parser.add_argument('--epochs', type=int, default=20)
+    arg_parser.add_argument('--epochs', type=int, default=10)
     args = arg_parser.parse_args()
     main(args)

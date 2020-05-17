@@ -6,10 +6,9 @@ import torch.optim as optim
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from models import *
-import tqdm
 
 DEVICE = torch.device('cuda:1' if torch.cuda.is_available() else torch.device('cpu'))
-# DEVICE = 'cpu'
+# DEVICE = 'duda'
 
 # Training settings
 class Solver(object):
@@ -45,12 +44,12 @@ class Solver(object):
             
         if which_opt == 'adam':
             self.opt_g = optim.Adam(self.G.parameters(),
-                                    lr=lr, weight_decay=0.000)
+                                    lr=lr, weight_decay=0.0005)
 
             self.opt_c1 = optim.Adam(self.C1.parameters(),
-                                     lr=lr, weight_decay=0.000)
+                                     lr=lr, weight_decay=0.0005)
             self.opt_c2 = optim.Adam(self.C2.parameters(),
-                                     lr=lr, weight_decay=0.000)
+                                     lr=lr, weight_decay=0.0005)
             
     def reset_grad(self):
         self.opt_g.zero_grad()
@@ -70,9 +69,7 @@ class Solver(object):
         self.C2.train()
         torch.cuda.manual_seed(1)
 
-        len_dataloader = min(len(source_loader), len(target_loader))
-
-        for (data_src, data_tar) in tqdm.tqdm(zip(enumerate(source_loader), enumerate(target_loader)), total=len_dataloader, leave=False):
+        for (data_src, data_tar) in zip(enumerate(source_loader), enumerate(target_loader)):
             batch_idx, (x_src, y_src) = data_src
             _, (x_tar, _) = data_tar
             x_src, y_src, x_tar = x_src.to(DEVICE), y_src.to(DEVICE), x_tar.to(DEVICE)
@@ -127,80 +124,13 @@ class Solver(object):
                 self.opt_g.step()
                 self.reset_grad()
 
-            if batch_idx > 500:
-                return batch_idx
-
-            if batch_idx % self.interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss1: {:.6f}\t Loss2: {:.6f}\t  Discrepancy: {:.6f}'.format(
-                    epoch, batch_idx, 100,
-                    100. * batch_idx / 70000, loss_s1.item(), loss_s2.item(), loss_dis.item()))
-                if record_file:
-                    record = open(record_file, 'a')
-                    record.write('%s %s %s\n' % (loss_dis.item(), loss_s1.item(), loss_s2.item()))
-                    record.close()
-        return batch_idx
-
-    '''
-    def train_onestep(self, epoch, record_file=None):
-        criterion = nn.CrossEntropyLoss().cuda()
-        self.G.train()
-        self.C1.train()
-        self.C2.train()
-        torch.cuda.manual_seed(1)
-
-        for batch_idx, data in enumerate(self.datasets):
-            img_t = data['T']
-            img_s = data['S']
-            label_s = data['S_label']
-            if img_s.size()[0] < self.batch_size or img_t.size()[0] < self.batch_size:
-                break
-            img_s = img_s.cuda()
-            img_t = img_t.cuda()
-            label_s = Variable(label_s.long().cuda())
-            img_s = Variable(img_s)
-            img_t = Variable(img_t)
-            self.reset_grad()
-            feat_s = self.G(img_s)
-            output_s1 = self.C1(feat_s)
-            output_s2 = self.C2(feat_s)
-            loss_s1 = criterion(output_s1, label_s)
-            loss_s2 = criterion(output_s2, label_s)
-            loss_s = loss_s1 + loss_s2
-            loss_s.backward(retain_variables=True)
-            feat_t = self.G(img_t)
-            self.C1.set_lambda(1.0)
-            self.C2.set_lambda(1.0)
-            output_t1 = self.C1(feat_t, reverse=True)
-            output_t2 = self.C2(feat_t, reverse=True)
-            loss_dis = -self.discrepancy(output_t1, output_t2)
-            #loss_dis.backward()
-            self.opt_c1.step()
-            self.opt_c2.step()
-            self.opt_g.step()
-            self.reset_grad()
-            if batch_idx > 500:
-                return batch_idx
-
-            if batch_idx % self.interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss1: {:.6f}\t Loss2: {:.6f}\t  Discrepancy: {:.6f}'.format(
-                    epoch, batch_idx, 100,
-                    100. * batch_idx / 70000, loss_s1.data[0], loss_s2.data[0], loss_dis.data[0]))
-                if record_file:
-                    record = open(record_file, 'a')
-                    record.write('%s %s %s\n' % (loss_dis.data[0], loss_s1.data[0], loss_s2.data[0]))
-                    record.close()
-        return batch_idx
-    '''
 
     def test(self, epoch, target_loader, record_file=None, save_model=False):
         self.G.eval()
         self.C1.eval()
         self.C2.eval()
         test_loss = 0
-        correct1 = 0
-        correct2 = 0
-        correct3 = 0
-        size = 0
+        rtv = []
         for batch_idx, data in enumerate(target_loader):
             (x_tar, y_tar) = data
             x_tar, y_tar = x_tar.to(DEVICE), y_tar.to(DEVICE)
@@ -210,29 +140,6 @@ class Solver(object):
             test_loss += F.nll_loss(output1, y_tar).item()
             test_loss += F.nll_loss(output2, y_tar).item()
             output_ensemble = output1 + output2
-            pred1 = output1.data.max(1)[1]
-            pred2 = output2.data.max(1)[1]
-            pred_ensemble = output_ensemble.data.max(1)[1]
-            k = y_tar.data.size()[0]
-            correct1 += pred1.eq(y_tar.data).cpu().sum()
-            correct2 += pred2.eq(y_tar.data).cpu().sum()
-            correct3 += pred_ensemble.eq(y_tar.data).cpu().sum()
-            size += k
-        test_loss = test_loss / size / 2
-        print(
-            '\nTest set: Average loss: {:.4f}, Accuracy C1: {}/{} ({:.0f}%) Accuracy C2: {}/{} ({:.0f}%) Accuracy Ensemble: {}/{} ({:.0f}%) \n'.format(
-                test_loss, correct1, size,
-                100. * correct1 / size, correct2, size, 100. * correct2 / size, correct3, size, 100. * correct3 / size))
-        if save_model and epoch % self.save_epoch == 0:
-            torch.save(self.G,
-                       '%s/model_epoch%s_G.pt' % (self.checkpoint_dir, epoch))
-            torch.save(self.C1,
-                       '%s/model_epoch%s_C1.pt' % (self.checkpoint_dir, epoch))
-            torch.save(self.C2,
-                       '%s/model_epoch%s_C2.pt' % (self.checkpoint_dir, epoch))
-        if record_file:
-            record = open(record_file, 'a')
-            print('recording %s', record_file)
-            record.write('%s %s %s\n' % (float(correct1) / size, float(correct2) / size, float(correct3) / size))
-            record.close()
-        return correct3.item() / size
+            pred_ensemble = output_ensemble.data.max(1)[1].squeeze()
+            rtv += pred_ensemble.tolist()
+        return rtv
